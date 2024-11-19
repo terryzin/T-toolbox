@@ -194,7 +194,11 @@ class VideoToImageConverter:
             # 根据设定的输出帧率保存图片
             if frame_count % frame_interval == 0:
                 frame_filename = os.path.join(output_path, f"frame_{saved_count:04d}.{output_format}")
-                cv2.imwrite(frame_filename, frame)
+                # 修改这里：使用 imencode 和 imwrite 的组合来支持中文路径
+                success, encoded_img = cv2.imencode(f'.{output_format}', frame)
+                if success:
+                    with open(frame_filename, 'wb') as f:
+                        encoded_img.tofile(f)
                 saved_count += 1
             
             frame_count += 1
@@ -309,11 +313,15 @@ class VideoToImageConverter:
             
             if frame_count % frame_interval == 0:
                 frame_filename = os.path.join(output_path, f"frame_{saved_count:04d}.{output_format}")
-                cv2.imwrite(frame_filename, frame)
+                # 命令行模式也需要修改保存方式
+                success, encoded_img = cv2.imencode(f'.{output_format}', frame)
+                if success:
+                    with open(frame_filename, 'wb') as f:
+                        encoded_img.tofile(f)
                 saved_count += 1
-                
+            
             frame_count += 1
-            if frame_count % 100 == 0:  # 每100帧显示一次进度
+            if frame_count % 100 == 0:
                 print(f"已处理: {frame_count} 帧")
         
         cap.release()
