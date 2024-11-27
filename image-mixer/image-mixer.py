@@ -5,6 +5,8 @@ import json
 from PIL import Image
 import threading
 from pathlib import Path
+import concurrent.futures
+import time
 
 class ImageMixer:
     def __init__(self, root):
@@ -17,6 +19,7 @@ class ImageMixer:
         # 状态变量
         self.is_processing = False
         self.should_stop = False
+        self.executor = None
         
         self.create_ui()
         self.load_config()
@@ -74,6 +77,12 @@ class ImageMixer:
         # 清空输出目录选项
         self.clear_output = tk.BooleanVar()
         ttk.Checkbutton(main_frame, text="清空输出目录", variable=self.clear_output).grid(row=5, column=0, columnspan=2, sticky=tk.W)
+        
+        # 多线程设置
+        ttk.Label(main_frame, text="处理线程数:").grid(row=5, column=2, sticky=tk.E)
+        self.thread_count = tk.StringVar(value="1")
+        thread_entry = ttk.Entry(main_frame, textvariable=self.thread_count, width=5)
+        thread_entry.grid(row=5, column=3, sticky=tk.W)
         
         # 进度条
         progress_frame = ttk.Frame(main_frame)
@@ -153,7 +162,8 @@ class ImageMixer:
             "output_dir": self.output_dir.get(),
             "output_prefix": self.output_prefix.get(),
             "clear_output": self.clear_output.get(),
-            "alpha_invert": self.alpha_invert.get()  # 保存Alpha反转设置
+            "alpha_invert": self.alpha_invert.get(),
+            "thread_count": self.thread_count.get()
         }
         with open(self.config_file, "w") as f:
             json.dump(config, f)
@@ -168,7 +178,8 @@ class ImageMixer:
                 self.output_dir.set(config.get("output_dir", ""))
                 self.output_prefix.set(config.get("output_prefix", ""))
                 self.clear_output.set(config.get("clear_output", False))
-                self.alpha_invert.set(config.get("alpha_invert", False))  # 加载Alpha反转设置
+                self.alpha_invert.set(config.get("alpha_invert", False))
+                self.thread_count.set(config.get("thread_count", "1"))
         except FileNotFoundError:
             pass
             
@@ -177,6 +188,10 @@ class ImageMixer:
             self.start_conversion()
         else:
             self.should_stop = True
+            if self.executor:
+                self.executor.shutdown(wait=False)
+                self.executor = None
+            self.log("正在停止处理...")
             
     def start_conversion(self):
         # 验证输入
@@ -206,11 +221,19 @@ class ImageMixer:
         
     def process_images(self):
         try:
-            # 检查数据源是文件还是文件夹
+            # 记录开始时间
+            start_time = time.time()
+            
+            # 获取线程数
+            try:
+                thread_count = max(1, min(32, int(self.thread_count.get())))
+            except ValueError:
+                thread_count = 1
+                self.thread_count.set("1")
+
             data_source = self.data_source.get()
             is_single_file = os.path.isfile(data_source)
             
-            # 获取源文件列表
             if is_single_file:
                 data_files = [os.path.basename(data_source)]
                 data_source_dir = os.path.dirname(data_source)
@@ -219,7 +242,6 @@ class ImageMixer:
                 data_files = sorted([f for f in os.listdir(data_source_dir) 
                                    if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff'))])
             
-            # 获取alpha源文件列表
             alpha_source = self.alpha_source.get()
             if os.path.isfile(alpha_source):
                 alpha_files = [alpha_source] * len(data_files)
@@ -238,64 +260,62 @@ class ImageMixer:
                 "Blue": 2,
                 "Alpha": 3
             }
-            
+
+            # 创建任务列表
+            tasks = list(zip(data_files, alpha_files))
             processed_count = 0
-            for i, (data_file, alpha_file) in enumerate(zip(data_files, alpha_files)):
+            
+            # 创建线程池
+            self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=thread_count)
+            futures = []
+            
+            # 提交所有任务
+            for data_file, alpha_file in tasks:
                 if self.should_stop:
                     break
                     
+                future = self.executor.submit(
+                    self.process_single_image,
+                    data_file,
+                    data_source_dir,
+                    alpha_file if os.path.isfile(self.alpha_source.get()) else os.path.join(alpha_source_dir, alpha_file),
+                    is_single_file,
+                    channel_map
+                )
+                futures.append(future)
+            
+            # 处理完成的任务
+            for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                if self.should_stop:
+                    # 取消所有未完成的任务
+                    for f in futures:
+                        f.cancel()
+                    break
+                
+                if future.result():
+                    processed_count += 1
+                
                 # 更新进度
                 self.progress_var.set(f"处理中: {i+1}/{total}")
                 self.progress["value"] = i + 1
                 self.root.update_idletasks()
-                
-                # 处理图像
-                data_path = os.path.join(data_source_dir, data_file) if not is_single_file else data_source
-                alpha_path = alpha_file if os.path.isfile(self.alpha_source.get()) else os.path.join(alpha_source_dir, alpha_file)
-                
-                try:
-                    # 打开图像
-                    data_img = Image.open(data_path).convert('RGBA')
-                    alpha_img = Image.open(alpha_path).convert('RGBA')
-                    
-                    # 获取通道数据
-                    data_channels = list(data_img.split())
-                    alpha_channels = list(alpha_img.split())
-                    
-                    # 替换Alpha通道
-                    selected_channel = channel_map[self.channel_map.get()]
-                    alpha_channel = alpha_channels[selected_channel]
-                    
-                    # 如果启用了Alpha反转，反转alpha通道
-                    if self.alpha_invert.get():
-                        alpha_channel = Image.eval(alpha_channel, lambda x: 255 - x)
-                    
-                    data_channels[3] = alpha_channel
-                    
-                    # 合并通道
-                    result = Image.merge('RGBA', data_channels)
-                    
-                    # 保存结果
-                    output_name = os.path.splitext(data_file)[0]  # 获取文件名（不含扩展名）
-                    if self.output_prefix.get():
-                        output_name = self.output_prefix.get() + output_name
-                    output_path = os.path.join(self.output_dir.get(), output_name + '.png')
-                    
-                    # 直接以PNG格式保存，保留透明度
-                    result.save(output_path, 'PNG')
-                    
-                    alpha_name = os.path.basename(alpha_path)
-                    self.log(f"已处理: {data_file} -> {alpha_name} -> {os.path.basename(output_path)}")
-                    processed_count += 1
-                    
-                except Exception as e:
-                    self.log(f"处理 {data_file} 时出错: {str(e)}")
-                    
+
         except Exception as e:
             self.log(f"发生错误: {str(e)}")
             
         finally:
+            # 关闭线程池
+            if self.executor:
+                self.executor.shutdown(wait=False)
+                self.executor = None
+            
+            # 计算总用时
+            elapsed_time = time.time() - start_time
+            minutes = int(elapsed_time // 60)
+            seconds = elapsed_time % 60
+            
             self.is_processing = False
+            self.should_stop = False
             self.convert_button.configure(text="转换")
             self.progress_var.set("处理完成")
             # 输出汇总信息
@@ -303,7 +323,50 @@ class ImageMixer:
             self.log(f"总计处理: {total} 个文件")
             self.log(f"成功处理: {processed_count} 个文件")
             self.log(f"失败数量: {total - processed_count} 个文件")
+            self.log(f"处理线程: {thread_count} 个")
+            self.log(f"总计用时: {minutes}分 {seconds:.1f}秒")
             self.save_config()
+
+    def process_single_image(self, data_file, data_source_dir, alpha_path, is_single_file, channel_map):
+        try:
+            data_path = os.path.join(data_source_dir, data_file) if not is_single_file else data_source_dir
+            
+            # 打开图像
+            data_img = Image.open(data_path).convert('RGBA')
+            alpha_img = Image.open(alpha_path).convert('RGBA')
+            
+            # 获取通道数据
+            data_channels = list(data_img.split())
+            alpha_channels = list(alpha_img.split())
+            
+            # 替换Alpha通道
+            selected_channel = channel_map[self.channel_map.get()]
+            alpha_channel = alpha_channels[selected_channel]
+            
+            # 如果启用了Alpha反转，反转alpha通道
+            if self.alpha_invert.get():
+                alpha_channel = Image.eval(alpha_channel, lambda x: 255 - x)
+            
+            data_channels[3] = alpha_channel
+            
+            # 合并通道
+            result = Image.merge('RGBA', data_channels)
+            
+            # 保存结果
+            output_name = os.path.splitext(data_file)[0]
+            if self.output_prefix.get():
+                output_name = self.output_prefix.get() + output_name
+            output_path = os.path.join(self.output_dir.get(), output_name + '.png')
+            
+            # 直接以PNG格式保存，保留透明度
+            result.save(output_path, 'PNG')
+            
+            alpha_name = os.path.basename(alpha_path)
+            self.log(f"已处理: {data_file} -> {alpha_name} -> {os.path.basename(output_path)}")
+            return True
+        except Exception as e:
+            self.log(f"处理 {data_file} 时出错: {str(e)}")
+            return False
 
 def main():
     root = tk.Tk()
