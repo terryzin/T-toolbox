@@ -3,3 +3,4 @@
 /video2image/dist
 image2detail/config.json
 *.pyc
+config.json

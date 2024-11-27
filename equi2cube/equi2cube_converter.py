@@ -3,19 +3,18 @@ from PIL import Image
 
 def create_cubemap_matrices(width):
     """创建立方体贴图的采样矩阵"""
-    # 创建网格坐标
     x = np.linspace(-1, 1, width)
     y = np.linspace(-1, 1, width)
     x, y = np.meshgrid(x, y)
 
-    # 通过将 x 取反来实现水平翻转
+    # 标准立方体贴图映射
     matrices = {
-        'posy': (-x, -np.ones_like(y), y),         # 上
-        'negy': (-x, np.ones_like(y), -y),         # 下
-        'negx': (np.ones_like(x), y, x),           # 左
-        'posz': (-x, y, np.ones_like(x)),          # 前
-        'posx': (-np.ones_like(x), y, -x),         # 右
-        'negz': (x, y, -np.ones_like(x))           # 后
+        'posy': (x, 1, -y),    # 上面 (+y)
+        'negy': (x, -1, y),    # 下面 (-y)
+        'posx': (1, y, -x),    # 右面 (+x)
+        'negx': (-1, y, x),    # 左面 (-x)
+        'posz': (x, y, 1),     # 前面 (+z)
+        'negz': (-x, y, -1),   # 后面 (-z)
     }
     
     return matrices
@@ -41,7 +40,7 @@ def equirectangular_to_cubemap(equi_img, face_size=None):
         face_size: 输出的立方体每个面的大小，默认为输入图像高度的1/2
         
     Returns:
-        tuple: 包含6个PIL Image对象的元组 (front, back, left, right, top, bottom)
+        tuple: 包含6个PIL Image对象的元组，顺序为 (top, bottom, right, left, front, back)
     """
     # 转换为numpy数组
     equi_array = np.array(equi_img)
@@ -94,12 +93,12 @@ def equirectangular_to_cubemap(equi_img, face_size=None):
         
         faces_raw[face_name] = Image.fromarray(face_pixels)
     
-    # 在返回之前对所有面进行水平翻转，并对顶面和底面进行旋转
+    # 直接返回面，不进行任何翻转或旋转调整
     return (
-        faces_raw['posy'].rotate(-90, expand=True),    # 上(逆时针90度)
-        faces_raw['negx'],    # 左
-        faces_raw['posz'],    # 前
-        faces_raw['posx'],    # 右
-        faces_raw['negz'],    # 后
-        faces_raw['negy'].rotate(90, expand=True)   # 下(顺时针90度)
+        faces_raw['posy'],  # top
+        faces_raw['negy'],  # bottom
+        faces_raw['posx'],  # right
+        faces_raw['negx'],  # left
+        faces_raw['posz'],  # front
+        faces_raw['negz']   # back
     ) 
