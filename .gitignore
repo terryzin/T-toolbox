@@ -4,3 +4,4 @@
 image2detail/config.json
 *.pyc
 config.json
+image-mixer/image_mixer_config.json

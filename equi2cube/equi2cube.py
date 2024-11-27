@@ -11,6 +11,9 @@ import queue
 import equi2cube_converter
 from PIL import ImageTk
 import tkinter.ttk as ttk
+import cv2
+import argparse
+import sys
 
 class Equi2CubeConverter:
     def __init__(self):
@@ -18,10 +21,10 @@ class Equi2CubeConverter:
         self.root.title("Equirectangular to Cubemap Converter")
         
         # 设置最小窗口大小
-        self.root.minsize(800, 900)
+        self.root.minsize(800, 850)
         
         # 默认窗口大小
-        self.root.geometry("800x900")
+        self.root.geometry("800x850")
         
         # 允许窗口调整大小
         self.root.resizable(True, True)
@@ -44,13 +47,16 @@ class Equi2CubeConverter:
         }
         
         # 预览图像的大小
-        self.preview_size = 150
+        self.preview_size = 100
         
         # 创建预览图像的字典
         self.preview_labels = {}
         
         # Add this line to initialize progress_var
         self.progress_var = tk.DoubleVar()
+        
+        # 添加清空文件夹选项的变量
+        self.clear_output_dir = tk.BooleanVar(value=False)
         
         self.create_gui()
         self.load_config()
@@ -63,19 +69,31 @@ class Equi2CubeConverter:
         main_container = ttk.Frame(self.root, padding="10")
         main_container.pack(fill='both', expand=True)
 
-        # 输入文件夹选择 (row 0)
+        # 输入源选择 (row 0)
         input_frame = ttk.Frame(main_container)
         input_frame.pack(fill='x', pady=(0, 5))
-        ttk.Label(input_frame, text="输入文件夹:").pack(side='left')
+        ttk.Label(input_frame, text="输入源:").pack(side='left')
         ttk.Entry(input_frame, textvariable=self.input_dir).pack(side='left', fill='x', expand=True, padx=5)
-        ttk.Button(input_frame, text="浏览", command=self.select_input_dir).pack(side='right')
+        ttk.Button(input_frame, text="选择文件夹", command=self.select_input_dir).pack(side='right')
+        ttk.Button(input_frame, text="选择文件", command=self.select_input_file).pack(side='right', padx=5)
 
         # 输出文件夹选择 (row 1)
         output_frame = ttk.Frame(main_container)
         output_frame.pack(fill='x', pady=(0, 5))
         ttk.Label(output_frame, text="输出文件夹:").pack(side='left')
         ttk.Entry(output_frame, textvariable=self.output_dir).pack(side='left', fill='x', expand=True, padx=5)
-        ttk.Button(output_frame, text="浏览", command=self.select_output_dir).pack(side='right')
+        ttk.Button(output_frame, text="打开文件夹", command=self.open_output_dir).pack(side='right')
+        ttk.Button(output_frame, text="选择文件夹", command=self.select_output_dir).pack(side='right', padx=5)
+
+        # 添加清空文件夹选项 (row 1.5)
+        clear_frame = ttk.Frame(main_container)
+        clear_frame.pack(fill='x', pady=(0, 5))
+        ttk.Checkbutton(
+            clear_frame,
+            text="清空输出文件夹",
+            variable=self.clear_output_dir,
+            command=self.save_config
+        ).pack(side='left')
 
         # 面选择框架 (row 2)
         face_select_frame = ttk.LabelFrame(main_container, text="输出面选择")
@@ -138,7 +156,7 @@ class Equi2CubeConverter:
         # Log窗口 (row 5)
         log_frame = ttk.LabelFrame(main_container, text="处理日志")
         log_frame.pack(fill='both', expand=True, pady=(0, 5))
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=8)
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=5)
         self.log_text.pack(fill='both', expand=True, padx=5, pady=5)
 
         # 控制按钮 (row 6)
@@ -147,6 +165,17 @@ class Equi2CubeConverter:
         ttk.Button(button_frame, text="退出", command=self.on_closing).pack(side='left', padx=5)
         self.convert_button = ttk.Button(button_frame, text="转换", command=self.toggle_conversion)
         self.convert_button.pack(side='right', padx=5)
+
+    def select_input_file(self):
+        file_path = filedialog.askopenfilename(
+            filetypes=[
+                ("图像文件", "*.jpg;*.jpeg;*.png"),
+                ("所有文件", "*.*")
+            ]
+        )
+        if file_path:
+            self.input_dir.set(file_path)
+            self.save_config()
 
     def select_input_dir(self):
         directory = filedialog.askdirectory()
@@ -167,6 +196,7 @@ class Equi2CubeConverter:
                 config = json.load(f)
                 self.input_dir.set(config.get('input_dir', ''))
                 self.output_dir.set(config.get('output_dir', ''))
+                self.clear_output_dir.set(config.get('clear_output_dir', False))
                 
                 # 加载面选择配置
                 if 'face_config' in config:
@@ -179,6 +209,7 @@ class Equi2CubeConverter:
         config = {
             'input_dir': self.input_dir.get(),
             'output_dir': self.output_dir.get(),
+            'clear_output_dir': self.clear_output_dir.get(),
             'face_config': {
                 face_id: var.get()
                 for face_id, var in self.face_vars.items()
@@ -235,10 +266,36 @@ class Equi2CubeConverter:
         # 确保输出目录存在
         output_path.mkdir(parents=True, exist_ok=True)
         
-        image_files = list(input_path.glob("*.jpg")) + list(input_path.glob("*.png"))
-        total_files = len(image_files)
+        # 如果选择了清空输出文件夹，则在处理前清空
+        if self.clear_output_dir.get():
+            try:
+                # 删除文件夹中的所有文件
+                for file in output_path.glob("*"):
+                    if file.is_file():
+                        file.unlink()
+                self.log_message("已清空输出文件夹")
+            except Exception as e:
+                self.log_message(f"清空输出文件夹时出错: {str(e)}")
+                return
         
-        self.log_message(f"找到 {total_files} 个图像文件")
+        # 根据输入是文件还是目录来确定要处理的文件列表
+        if input_path.is_file():
+            # 如果是单个文件，直接将其作为待处理文件
+            if input_path.suffix.lower() in {'.jpg', '.jpeg', '.png'}:
+                image_files = [input_path]
+            else:
+                self.log_message(f"错误：不支持的文件格式 {input_path.suffix}")
+                return
+        else:
+            # 如果是目录，获取所有支持的图像文件
+            image_files = list(input_path.glob("*.jpg")) + list(input_path.glob("*.jpeg")) + list(input_path.glob("*.png"))
+        
+        total_files = len(image_files)
+        if total_files == 0:
+            self.log_message("没有找到可处理的图像文件")
+            return
+        
+        self.log_message(f"开始处理 {total_files} 个图像文件")
         processed_count = 0
         
         # 修改这里：更新文件名后缀
@@ -296,6 +353,67 @@ class Equi2CubeConverter:
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.mainloop()
 
-if __name__ == "__main__":
-    app = Equi2CubeConverter()
-    app.run() 
+    def open_output_dir(self):
+        """打开输出文件夹"""
+        output_dir = self.output_dir.get()
+        if output_dir and os.path.exists(output_dir):
+            # 使用系统默认的文件管理器打开文件夹
+            os.startfile(output_dir) if os.name == 'nt' else os.system(f'xdg-open "{output_dir}"')
+        else:
+            self.log_message("输出文件夹不存在")
+
+def process_single_file(input_path, output_dir):
+    """处理单个文件"""
+    # 原有的文件处理逻辑...
+    try:
+        img = cv2.imread(str(input_path))
+        if img is None:
+            print(f"无法读取文件: {input_path}")
+            return
+        # 处理图片的其他代码...
+        output_path = Path(output_dir) / input_path.name
+        cv2.imwrite(str(output_path), result)
+        print(f"已处理: {input_path.name}")
+    except Exception as e:
+        print(f"处理文件 {input_path} 时出错: {str(e)}")
+
+def process_directory(input_dir, output_dir):
+    """处理整个文件夹"""
+    input_path = Path(input_dir)
+    supported_extensions = {'.jpg', '.jpeg', '.png'}
+    
+    for file_path in input_path.glob('*'):
+        if file_path.suffix.lower() in supported_extensions:
+            process_single_file(file_path, output_dir)
+
+def main():
+    # Check if any command line arguments were provided
+    if len(sys.argv) > 1:
+        # Command-line mode
+        parser = argparse.ArgumentParser(description='全景图转立方体贴图工具')
+        parser.add_argument('input', help='输入源 (可以是单个文件或文件夹)')
+        parser.add_argument('output', help='输出文件夹')
+        args = parser.parse_args()
+
+        input_path = Path(args.input)
+        output_dir = Path(args.output)
+
+        # 确保输出目录存在
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        if input_path.is_file():
+            process_single_file(input_path, output_dir)
+        elif input_path.is_dir():
+            process_directory(input_path, output_dir)
+        else:
+            print(f"错误: 输入源 '{input_path}' 不存在或无效")
+            return 1
+    else:
+        # GUI mode
+        converter = Equi2CubeConverter()
+        converter.run()
+
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main()) 
