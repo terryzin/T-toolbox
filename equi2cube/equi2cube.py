@@ -58,6 +58,9 @@ class Equi2CubeConverter:
         # 添加清空文件夹选项的变量
         self.clear_output_dir = tk.BooleanVar(value=False)
         
+        # 获取当前脚本所在目录
+        self.script_dir = Path(__file__).parent
+        
         self.create_gui()
         self.load_config()
         
@@ -190,22 +193,27 @@ class Equi2CubeConverter:
             self.save_config()
 
     def load_config(self):
-        config_path = Path.home() / '.equi2cube_config.json'
+        """从配置文件加载设置"""
+        config_path = self.script_dir / 'config.json'
         if config_path.exists():
-            with open(config_path) as f:
-                config = json.load(f)
-                self.input_dir.set(config.get('input_dir', ''))
-                self.output_dir.set(config.get('output_dir', ''))
-                self.clear_output_dir.set(config.get('clear_output_dir', False))
-                
-                # 加载面选择配置
-                if 'face_config' in config:
-                    for face_id, enabled in config['face_config'].items():
-                        if face_id in self.face_config:
-                            self.face_config[face_id]['enabled'] = enabled
+            try:
+                with open(config_path, encoding='utf-8') as f:
+                    config = json.load(f)
+                    self.input_dir.set(config.get('input_dir', ''))
+                    self.output_dir.set(config.get('output_dir', ''))
+                    self.clear_output_dir.set(config.get('clear_output_dir', False))
+                    
+                    # 加载面选择配置
+                    if 'face_config' in config:
+                        for face_id, enabled in config['face_config'].items():
+                            if face_id in self.face_config:
+                                self.face_config[face_id]['enabled'] = enabled
+            except Exception as e:
+                print(f"加载配置文件时出错: {str(e)}")
 
     def save_config(self):
-        config_path = Path.home() / '.equi2cube_config.json'
+        """保存设置到配置文件"""
+        config_path = self.script_dir / 'config.json'
         config = {
             'input_dir': self.input_dir.get(),
             'output_dir': self.output_dir.get(),
@@ -215,8 +223,11 @@ class Equi2CubeConverter:
                 for face_id, var in self.face_vars.items()
             }
         }
-        with open(config_path, 'w') as f:
-            json.dump(config, f)
+        try:
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"保存配置文件时出错: {str(e)}")
 
     def log_message(self, message):
         self.message_queue.put(message)

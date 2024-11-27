@@ -8,6 +8,7 @@ import time
 import json
 import argparse
 import sys
+from pathlib import Path
 
 def show_help():
     help_text = """
@@ -38,6 +39,9 @@ class VideoToImageConverter:
         # 初始化转换状态
         self.is_converting = False
         self.video_file = None
+        
+        # 获取当前脚本所在目录
+        self.script_dir = Path(__file__).parent
         
         if master:
             self.setup_gui(master)
@@ -127,7 +131,7 @@ class VideoToImageConverter:
         if is_file:
             file = filedialog.askopenfilename(
                 title="选择视频文件",
-                filetypes=(("视��文件", "*.mp4;*.avi"), ("所有文件", "*.*"))
+                filetypes=(("视文件", "*.mp4;*.avi"), ("所有文件", "*.*"))
             )
             if file:
                 self.video_file = file
@@ -254,36 +258,38 @@ class VideoToImageConverter:
         self.fps_entry.delete(0, tk.END)
         self.log_text.delete(1.0, tk.END)
         self.progress['value'] = 0
-        # 确保重��时也重置转换状态
+        # 确保重时也重置转换状态
         self.is_converting = False
         self.start_button.config(text="开始转换")
 
     def load_config(self):
-        # 加载配置
-        if os.path.exists("config.json"):
+        """从配置文件加载设置"""
+        config_path = self.script_dir / 'config.json'
+        if config_path.exists():
             try:
-                with open("config.json", "r") as f:
+                with open(config_path, encoding='utf-8') as f:
                     config = json.load(f)
                     self.output_dir.set(config.get("output_dir", ""))
                     self.fps_entry.insert(0, config.get("fps", "1"))
                     self.video_file = config.get("video_file", "")  # 改为加载单个文件
                     if self.video_file:
                         self.input_entry.insert(0, self.video_file)
-            except:
-                pass
+            except Exception as e:
+                print(f"加载配置文件时出错: {str(e)}")
     
     def save_config(self):
-        # 保存配置
+        """保存设置到配置文件"""
+        config_path = self.script_dir / 'config.json'
         config = {
             "output_dir": self.output_dir.get(),
             "fps": self.fps_entry.get(),
             "video_file": self.video_file  # 改为保存单个文件
         }
         try:
-            with open("config.json", "w") as f:
-                json.dump(config, f)
-        except:
-            pass
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"保存配置文件时出错: {str(e)}")
 
     def on_closing(self):
         # 确保关闭时停止转换
@@ -292,7 +298,7 @@ class VideoToImageConverter:
         self.master.destroy()
 
     def apply_args(self, args):
-        """将命令行参数��用到GUI"""
+        """将命令行参数用到GUI"""
         if args.input:
             self.video_file = args.input
             self.input_entry.delete(0, tk.END)
