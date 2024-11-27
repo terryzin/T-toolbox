@@ -22,22 +22,31 @@ class ImageMixer:
         self.load_config()
         
     def create_ui(self):
+        # 设置窗口最小大小和默认大小
+        self.root.minsize(800, 500)
+        self.root.geometry("800x500")
+        
         # 创建主框架
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
+        # 配置主窗口的网格权重，使其可以自适应调整大小
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+        
         # 数据源选择
-        ttk.Label(main_frame, text="数据源文件夹:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Label(main_frame, text="输入源:").grid(row=0, column=0, sticky=tk.W)
         self.data_source = tk.StringVar()
         ttk.Entry(main_frame, textvariable=self.data_source).grid(row=0, column=1, sticky=(tk.W, tk.E))
-        ttk.Button(main_frame, text="浏览", command=self.browse_data_source).grid(row=0, column=2)
+        ttk.Button(main_frame, text="选择文件", command=lambda: self.browse_data_source(True)).grid(row=0, column=2)
+        ttk.Button(main_frame, text="选择文件夹", command=lambda: self.browse_data_source(False)).grid(row=0, column=3)
         
         # Alpha源选择
         ttk.Label(main_frame, text="Alpha源:").grid(row=1, column=0, sticky=tk.W)
         self.alpha_source = tk.StringVar()
         ttk.Entry(main_frame, textvariable=self.alpha_source).grid(row=1, column=1, sticky=(tk.W, tk.E))
-        ttk.Button(main_frame, text="浏览文件", command=lambda: self.browse_alpha_source(True)).grid(row=1, column=2)
-        ttk.Button(main_frame, text="浏览文件夹", command=lambda: self.browse_alpha_source(False)).grid(row=1, column=3)
+        ttk.Button(main_frame, text="选择文件", command=lambda: self.browse_alpha_source(True)).grid(row=1, column=2)
+        ttk.Button(main_frame, text="选择文件夹", command=lambda: self.browse_alpha_source(False)).grid(row=1, column=3)
         
         # Alpha通道映射选择
         ttk.Label(main_frame, text="Alpha通道映射:").grid(row=2, column=0, sticky=tk.W)
@@ -46,7 +55,7 @@ class ImageMixer:
         channel_combo = ttk.Combobox(main_frame, textvariable=self.channel_map, values=channels, state="readonly")
         channel_combo.grid(row=2, column=1, sticky=(tk.W, tk.E))
         
-        # 添加Alpha反转选项
+        # Alpha反转选项
         self.alpha_invert = tk.BooleanVar()
         ttk.Checkbutton(main_frame, text="Alpha反转", variable=self.alpha_invert).grid(row=2, column=2, sticky=tk.W)
         
@@ -54,7 +63,7 @@ class ImageMixer:
         ttk.Label(main_frame, text="输出目录:").grid(row=3, column=0, sticky=tk.W)
         self.output_dir = tk.StringVar()
         ttk.Entry(main_frame, textvariable=self.output_dir).grid(row=3, column=1, sticky=(tk.W, tk.E))
-        ttk.Button(main_frame, text="浏览", command=self.browse_output_dir).grid(row=3, column=2)
+        ttk.Button(main_frame, text="选择文件夹", command=self.browse_output_dir).grid(row=3, column=2)
         ttk.Button(main_frame, text="打开目录", command=self.open_output_dir).grid(row=3, column=3)
         
         # 输出前缀
@@ -67,31 +76,46 @@ class ImageMixer:
         ttk.Checkbutton(main_frame, text="清空输出目录", variable=self.clear_output).grid(row=5, column=0, columnspan=2, sticky=tk.W)
         
         # 进度条
+        progress_frame = ttk.Frame(main_frame)
+        progress_frame.grid(row=6, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=10)
         self.progress_var = tk.StringVar(value="准备就绪")
-        ttk.Label(main_frame, textvariable=self.progress_var).grid(row=6, column=0, columnspan=2, sticky=tk.W)
-        self.progress = ttk.Progressbar(main_frame, length=300, mode='determinate')
-        self.progress.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        ttk.Label(progress_frame, textvariable=self.progress_var).pack(side=tk.TOP, anchor=tk.W)
+        self.progress = ttk.Progressbar(progress_frame, length=300, mode='determinate')
+        self.progress.pack(fill=tk.X, expand=True)
         
         # 日志输出框
-        self.log_text = tk.Text(main_frame, height=10, width=50)
-        self.log_text.grid(row=8, column=0, columnspan=4, sticky=(tk.W, tk.E))
+        self.log_text = tk.Text(main_frame, height=8)
+        self.log_text.grid(row=7, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=10)
+        
+        # 添加滚动条
+        scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.log_text.yview)
+        scrollbar.grid(row=7, column=4, sticky=(tk.N, tk.S))
+        self.log_text.configure(yscrollcommand=scrollbar.set)
         
         # 按钮框架
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=9, column=0, columnspan=4, sticky=(tk.W, tk.E))
+        button_frame.grid(row=8, column=0, columnspan=4, sticky=(tk.W, tk.E), pady=10)
         
-        # 转换和退出按钮 - 对调位置
+        # 转换和退出按钮
         ttk.Button(button_frame, text="退出", command=self.root.quit).pack(side=tk.LEFT, padx=5)
         self.convert_button = ttk.Button(button_frame, text="转换", command=self.toggle_conversion)
         self.convert_button.pack(side=tk.RIGHT, padx=5)
         
         # 配置列权重以实现自适应
-        main_frame.columnconfigure(1, weight=1)
+        main_frame.grid_columnconfigure(1, weight=1)  # 让第二列（输入框所在列）可以自适应拉伸
+        main_frame.grid_rowconfigure(7, weight=1)     # 让日志框可以自适应拉伸
         
-    def browse_data_source(self):
-        folder = filedialog.askdirectory()
-        if folder:
-            self.data_source.set(folder)
+        # 设置所有控件的内边距
+        for child in main_frame.winfo_children():
+            child.grid_configure(padx=5, pady=3)
+        
+    def browse_data_source(self, is_file):
+        if is_file:
+            path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.tiff")])
+        else:
+            path = filedialog.askdirectory()
+        if path:
+            self.data_source.set(path)
             
     def browse_alpha_source(self, is_file):
         if is_file:
@@ -182,15 +206,27 @@ class ImageMixer:
         
     def process_images(self):
         try:
+            # 检查数据源是文件还是文件夹
+            data_source = self.data_source.get()
+            is_single_file = os.path.isfile(data_source)
+            
             # 获取源文件列表
-            data_files = sorted([f for f in os.listdir(self.data_source.get()) 
-                               if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff'))])
+            if is_single_file:
+                data_files = [os.path.basename(data_source)]
+                data_source_dir = os.path.dirname(data_source)
+            else:
+                data_source_dir = data_source
+                data_files = sorted([f for f in os.listdir(data_source_dir) 
+                                   if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff'))])
             
             # 获取alpha源文件列表
-            if os.path.isfile(self.alpha_source.get()):
-                alpha_files = [self.alpha_source.get()] * len(data_files)
+            alpha_source = self.alpha_source.get()
+            if os.path.isfile(alpha_source):
+                alpha_files = [alpha_source] * len(data_files)
+                alpha_source_dir = os.path.dirname(alpha_source)
             else:
-                alpha_files = sorted([f for f in os.listdir(self.alpha_source.get())
+                alpha_source_dir = alpha_source
+                alpha_files = sorted([f for f in os.listdir(alpha_source_dir)
                                     if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff'))])
                 
             total = min(len(data_files), len(alpha_files))
@@ -214,8 +250,8 @@ class ImageMixer:
                 self.root.update_idletasks()
                 
                 # 处理图像
-                data_path = os.path.join(self.data_source.get(), data_file)
-                alpha_path = alpha_file if os.path.isfile(self.alpha_source.get()) else os.path.join(self.alpha_source.get(), alpha_file)
+                data_path = os.path.join(data_source_dir, data_file) if not is_single_file else data_source
+                alpha_path = alpha_file if os.path.isfile(self.alpha_source.get()) else os.path.join(alpha_source_dir, alpha_file)
                 
                 try:
                     # 打开图像
