@@ -35,6 +35,10 @@ GUI模式:
 
 class VideoToImageConverter:
     def __init__(self, master=None, args=None):
+        # 初始化转换状态
+        self.is_converting = False
+        self.video_file = None
+        
         if master:
             self.setup_gui(master)
             if args:
@@ -46,87 +50,96 @@ class VideoToImageConverter:
         self.master = master
         self.master.title("视频转换为图像序列帧")
         
-        # 输入视频文件选择
-        self.video_file = ""  # 改为单个文件
-        self.input_frame = tk.Frame(master)
-        self.input_frame.pack()
+        # 设置窗口最小大小和默认大小
+        self.master.minsize(800, 400)
+        self.master.geometry("800x400")
         
-        self.input_label = tk.Label(self.input_frame, text="输入视频文件:")
-        self.input_label.pack(side=tk.LEFT)
+        # 创建主框架
+        main_frame = ttk.Frame(master, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
         
-        self.input_entry = tk.Entry(self.input_frame, width=50)
-        self.input_entry.pack(side=tk.LEFT)
-        
-        self.browse_button = tk.Button(self.input_frame, text="浏览", command=self.browse_video)
-        self.browse_button.pack(side=tk.LEFT)
+        # 输入源选择
+        input_frame = ttk.Frame(main_frame)
+        input_frame.pack(fill=tk.X, pady=3)
+        ttk.Label(input_frame, text="输入源:").pack(side=tk.LEFT)
+        self.input_entry = ttk.Entry(input_frame)
+        self.input_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        ttk.Button(input_frame, text="选择文件", command=lambda: self.browse_video(True)).pack(side=tk.LEFT)
+        ttk.Button(input_frame, text="选择文件夹", command=lambda: self.browse_video(False)).pack(side=tk.LEFT, padx=(5,0))
         
         # 输出目录设置
+        output_frame = ttk.Frame(main_frame)
+        output_frame.pack(fill=tk.X, pady=3)
+        ttk.Label(output_frame, text="输出目录:").pack(side=tk.LEFT)
         self.output_dir = tk.StringVar()
-        self.output_frame = tk.Frame(master)
-        self.output_frame.pack()
+        self.output_entry = ttk.Entry(output_frame, textvariable=self.output_dir)
+        self.output_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        ttk.Button(output_frame, text="选择文件夹", command=self.select_output_directory).pack(side=tk.LEFT)
+        ttk.Button(output_frame, text="打开文件夹", command=self.open_output_directory).pack(side=tk.LEFT, padx=(5,0))
         
-        self.output_label = tk.Label(self.output_frame, text="输出目录:")
-        self.output_label.pack(side=tk.LEFT)
-        
-        self.output_entry = tk.Entry(self.output_frame, textvariable=self.output_dir, width=50)
-        self.output_entry.pack(side=tk.LEFT)
-        
-        self.output_button = tk.Button(self.output_frame, text="选择", command=self.select_output_directory)
-        self.output_button.pack(side=tk.LEFT)
+        # 清空输出目录选项
+        clear_frame = ttk.Frame(main_frame)
+        clear_frame.pack(fill=tk.X, pady=3)
+        self.clear_output = tk.BooleanVar(value=False)
+        ttk.Checkbutton(clear_frame, text="清空输出目录", variable=self.clear_output).pack(side=tk.LEFT)
         
         # 输出格式选择
+        format_frame = ttk.Frame(main_frame)
+        format_frame.pack(fill=tk.X, pady=3)
+        ttk.Label(format_frame, text="输出格式:").pack(side=tk.LEFT)
         self.format_var = tk.StringVar(value='jpg')
-        self.format_frame = tk.Frame(master)
-        self.format_frame.pack()
+        ttk.Radiobutton(format_frame, text='JPG', variable=self.format_var, value='jpg').pack(side=tk.LEFT)
+        ttk.Radiobutton(format_frame, text='PNG', variable=self.format_var, value='png').pack(side=tk.LEFT)
         
-        self.format_label = tk.Label(self.format_frame, text="输出格式:")
-        self.format_label.pack(side=tk.LEFT)
-        
-        self.jpg_radio = tk.Radiobutton(self.format_frame, text='JPG', variable=self.format_var, value='jpg')
-        self.jpg_radio.pack(side=tk.LEFT)
-        
-        self.png_radio = tk.Radiobutton(self.format_frame, text='PNG', variable=self.format_var, value='png')
-        self.png_radio.pack(side=tk.LEFT)
-        
-        # 帧率输入
-        self.fps_label = tk.Label(master, text="帧率:")
-        self.fps_label.pack()
-        
-        self.fps_entry = tk.Entry(master)
-        self.fps_entry.pack()
-        
-        # 输出log
-        self.log_text = tk.Text(master, height=10, width=50)
-        self.log_text.pack()
+        # 帧率设置
+        fps_frame = ttk.Frame(main_frame)
+        fps_frame.pack(fill=tk.X, pady=3)
+        ttk.Label(fps_frame, text="帧率:").pack(side=tk.LEFT)
+        self.fps_entry = ttk.Entry(fps_frame)
+        self.fps_entry.pack(side=tk.LEFT, padx=5)
         
         # 进度条
-        self.progress = ttk.Progressbar(master, orient="horizontal", length=400, mode="determinate")
-        self.progress.pack()
+        progress_frame = ttk.Frame(main_frame)
+        progress_frame.pack(fill=tk.X, pady=3)
+        self.progress = ttk.Progressbar(progress_frame, orient="horizontal", mode="determinate")
+        self.progress.pack(fill=tk.X)
         
-        # 添加转换状态标志
-        self.is_converting = False
+        # 日志输出
+        log_frame = ttk.Frame(main_frame)
+        log_frame.pack(fill=tk.BOTH, expand=True, pady=3)
+        self.log_text = tk.Text(log_frame, height=8)
+        self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar = ttk.Scrollbar(log_frame, orient=tk.VERTICAL, command=self.log_text.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.log_text.configure(yscrollcommand=scrollbar.set)
         
-        # 修改开始转换按钮的定义
-        self.start_button = tk.Button(master, text="开始转换", command=self.toggle_conversion)
-        self.start_button.pack()
-        
-        # 重置按钮
-        self.reset_button = tk.Button(master, text="重置", command=self.reset)
-        self.reset_button.pack()
+        # 底部按钮
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10,0))
+        ttk.Button(button_frame, text="退出", command=self.on_closing).pack(side=tk.LEFT)
+        self.start_button = ttk.Button(button_frame, text="开始转换", command=self.toggle_conversion)
+        self.start_button.pack(side=tk.RIGHT)
         
         # 加载配置
         self.load_config()
         
-    def browse_video(self):  # 修改为单文件选择
-        file = filedialog.askopenfilename(
-            title="选择视频文件",
-            filetypes=(("视频文件", "*.mp4;*.avi"), ("所有文件", "*.*"))
-        )
-        if file:
-            self.video_file = file
-            self.input_entry.delete(0, tk.END)
-            self.input_entry.insert(0, self.video_file)
-        
+    def browse_video(self, is_file):
+        if is_file:
+            file = filedialog.askopenfilename(
+                title="选择视频文件",
+                filetypes=(("视��文件", "*.mp4;*.avi"), ("所有文件", "*.*"))
+            )
+            if file:
+                self.video_file = file
+                self.input_entry.delete(0, tk.END)
+                self.input_entry.insert(0, file)
+        else:
+            directory = filedialog.askdirectory(title="选择视频文件夹")
+            if directory:
+                self.video_file = directory
+                self.input_entry.delete(0, tk.END)
+                self.input_entry.insert(0, directory)
+
     def select_output_directory(self):
         directory = filedialog.askdirectory(title="选择输出目录")
         self.output_dir.set(directory)
@@ -162,6 +175,24 @@ class VideoToImageConverter:
             self.log_text.see(tk.END)
         
     def convert_video(self):
+        # 检查并清空输出目录
+        output_path = self.output_dir.get()
+        if self.clear_output.get():
+            try:
+                # 确保输出目录存在
+                os.makedirs(output_path, exist_ok=True)
+                # 删除目录中的所有文件
+                for file in os.listdir(output_path):
+                    file_path = os.path.join(output_path, file)
+                    if os.path.isfile(file_path):
+                        os.unlink(file_path)
+                self.log_text.insert(tk.END, "已清空输出目录\n")
+            except Exception as e:
+                self.log_text.insert(tk.END, f"清空输出目录时出错: {str(e)}\n")
+                self.is_converting = False
+                self.start_button.config(text="开始转换")
+                return
+
         cap = cv2.VideoCapture(self.video_file)
         if not cap.isOpened():
             self.log_text.insert(tk.END, f"无法打开视频文件: {self.video_file}\n")
@@ -223,7 +254,7 @@ class VideoToImageConverter:
         self.fps_entry.delete(0, tk.END)
         self.log_text.delete(1.0, tk.END)
         self.progress['value'] = 0
-        # 确保重置时也重置转换状态
+        # 确保重��时也重置转换状态
         self.is_converting = False
         self.start_button.config(text="开始转换")
 
@@ -261,7 +292,7 @@ class VideoToImageConverter:
         self.master.destroy()
 
     def apply_args(self, args):
-        """将命令行参数应用到GUI"""
+        """将命令行参数��用到GUI"""
         if args.input:
             self.video_file = args.input
             self.input_entry.delete(0, tk.END)
@@ -327,6 +358,17 @@ class VideoToImageConverter:
         cap.release()
         elapsed_time = time.time() - start_time
         print(f"处理完成: {saved_count} 帧, 耗时 {elapsed_time:.2f} 秒")
+
+    def open_output_directory(self):
+        output_dir = self.output_dir.get()
+        if output_dir and os.path.exists(output_dir):
+            if os.name == 'nt':  # Windows
+                os.startfile(output_dir)
+            else:  # macOS 和 Linux
+                import subprocess
+                subprocess.run(['xdg-open' if os.name == 'posix' else 'open', output_dir])
+        else:
+            messagebox.showwarning("警告", "输出目录不存在")
 
 def main():
     parser = argparse.ArgumentParser(description='视频转图像序列帧工具', add_help=False)
