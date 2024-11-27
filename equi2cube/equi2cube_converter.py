@@ -7,14 +7,14 @@ def create_cubemap_matrices(width):
     y = np.linspace(-1, 1, width)
     x, y = np.meshgrid(x, y)
 
-    # 标准立方体贴图映射
     matrices = {
-        'posy': (x, 1, -y),    # 上面 (+y)
-        'negy': (x, -1, y),    # 下面 (-y)
-        'posx': (1, y, -x),    # 右面 (+x)
-        'negx': (-1, y, x),    # 左面 (-x)
-        'posz': (x, y, 1),     # 前面 (+z)
-        'negz': (-x, y, -1),   # 后面 (-z)
+        'negz': (-x, y, -np.ones_like(x)),          # 后
+        'posy': (-x, -np.ones_like(y), y),         # 上
+        'negy': (-x, np.ones_like(y), -y),         # 下
+        'negx': (np.ones_like(x), y, x),           # 左
+        'posz': (-x, y, np.ones_like(x)),          # 前
+        'posx': (-np.ones_like(x), y, -x),         # 右
+        'negz': (x, y, -np.ones_like(x))           # 后
     }
     
     return matrices
@@ -32,16 +32,7 @@ def convert_xyz_to_equirect(x, y, z, height, width):
     return u, v
 
 def equirectangular_to_cubemap(equi_img, face_size=None):
-    """
-    将等距柱状投影图像转换为立方体贴图
-    
-    Args:
-        equi_img: PIL Image对象，输入的等距柱状投影图像
-        face_size: 输出的立方体每个面的大小，默认为输入图像高度的1/2
-        
-    Returns:
-        tuple: 包含6个PIL Image对象的元组，顺序为 (top, bottom, right, left, front, back)
-    """
+    """将等距柱状投影图像转换为立方体贴图"""
     # 转换为numpy数组
     equi_array = np.array(equi_img)
     height, width = equi_array.shape[:2]
@@ -52,7 +43,7 @@ def equirectangular_to_cubemap(equi_img, face_size=None):
         
     # 创建采样矩阵
     matrices = create_cubemap_matrices(face_size)
-    faces_raw = {}
+    faces = {}
     
     # 对每个面进行转换
     for face_name, (x, y, z) in matrices.items():
@@ -79,7 +70,7 @@ def equirectangular_to_cubemap(equi_img, face_size=None):
         wu = u - u0
         wv = v - v0
         
-        # 修改这里：调整权重的维度以匹配图像数据
+        # 调整权重维度
         wu = wu[..., np.newaxis]
         wv = wv[..., np.newaxis]
         
@@ -91,14 +82,14 @@ def equirectangular_to_cubemap(equi_img, face_size=None):
             wu * wv * equi_array[v1, u1]
         ).astype(np.uint8)
         
-        faces_raw[face_name] = Image.fromarray(face_pixels)
+        faces[face_name] = Image.fromarray(face_pixels)
     
-    # 直接返回面，不进行任何翻转或旋转调整
+    # 返回六个面的图像
     return (
-        faces_raw['posy'],  # top
-        faces_raw['negy'],  # bottom
-        faces_raw['posx'],  # right
-        faces_raw['negx'],  # left
-        faces_raw['posz'],  # front
-        faces_raw['negz']   # back
+        faces['posy'],   # 上面
+        faces['negx'],   # 左面
+        faces['posz'],   # 前面
+        faces['posx'],   # 右面
+        faces['negz'],   # 后面
+        faces['negy']    # 下面
     ) 
