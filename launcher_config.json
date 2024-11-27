@@ -1,0 +1,33 @@
+{
+    "tools": [
+        {
+            "name": "Video2Image",
+            "icon": "assets/video2image.png",
+            "script": "video2image/video2image.py",
+            "tooltip": "将视频转换为图片序列",
+            "position": 0
+        },
+
+        {
+            "name": "Equi2Cube",
+            "icon": "assets/equi2cube.png",
+            "script": "equi2cube/equi2cube.py",
+            "tooltip": "全景图转立方体贴图",
+            "position": 1
+        },
+        {
+            "name": "ImageMixer",
+            "icon": "assets/imagemixer.png",
+            "script": "image-mixer/image-mixer.py",
+            "tooltip": "图片混合工具",
+            "position": 2
+        },
+        {
+            "name": "Image2Detail",
+            "icon": "assets/image2detail.png",
+            "script": "image2detail/image2detail.py",
+            "tooltip": "图片细节增强工具",
+            "position": 3
+        }
+    ]
+}
