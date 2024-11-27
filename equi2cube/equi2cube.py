@@ -14,6 +14,7 @@ import tkinter.ttk as ttk
 import cv2
 import argparse
 import sys
+import concurrent.futures
 
 class Equi2CubeConverter:
     def __init__(self):
@@ -88,32 +89,46 @@ class Equi2CubeConverter:
         ttk.Button(output_frame, text="打开文件夹", command=self.open_output_dir).pack(side='right')
         ttk.Button(output_frame, text="选择文件夹", command=self.select_output_dir).pack(side='right', padx=5)
 
-        # 添加清空文件夹选项 (row 1.5)
-        clear_frame = ttk.Frame(main_container)
-        clear_frame.pack(fill='x', pady=(0, 5))
+        # 修改输出文件夹选择后的布局
+        settings_frame = ttk.Frame(main_container)
+        settings_frame.pack(fill='x', pady=(0, 5))
+        
+        # 清空输出目录选项左对齐
         ttk.Checkbutton(
-            clear_frame,
-            text="清空输出文件夹",
+            settings_frame,
+            text="清空输出目录",
             variable=self.clear_output_dir,
             command=self.save_config
         ).pack(side='left')
+        
+        # 线程数设置右对齐
+        right_settings = ttk.Frame(settings_frame)
+        right_settings.pack(side='right')
+        
+        ttk.Label(right_settings, text="处理线程数:").pack(side='left')
+        self.thread_count = tk.StringVar(value="1")
+        thread_entry = ttk.Entry(right_settings, textvariable=self.thread_count, width=5)
+        thread_entry.pack(side='left', padx=5)
 
-        # 面选择框架 (row 2)
+        # 面选择框架放在下一行
         face_select_frame = ttk.LabelFrame(main_container, text="输出面选择")
         face_select_frame.pack(fill='x', pady=(0, 5))
         
-        # 使用网格布局排列复选框，每行3个
+        # 使用水平布局排列复选框
+        face_box_frame = ttk.Frame(face_select_frame)
+        face_box_frame.pack(padx=5, pady=2)
+        
         self.face_vars = {}
         for i, (face_id, face_info) in enumerate(self.face_config.items()):
             var = tk.BooleanVar(value=face_info['enabled'])
             self.face_vars[face_id] = var
             cb = ttk.Checkbutton(
-                face_select_frame,
+                face_box_frame,
                 text=face_info['name'],
                 variable=var,
                 command=self.save_config
             )
-            cb.grid(row=i//3, column=i%3, padx=5, pady=2, sticky='w')
+            cb.pack(side='left', padx=5)
 
         # 预览框架 (row 3)
         preview_frame = ttk.LabelFrame(main_container, text="预览")
@@ -202,6 +217,7 @@ class Equi2CubeConverter:
                     self.input_dir.set(config.get('input_dir', ''))
                     self.output_dir.set(config.get('output_dir', ''))
                     self.clear_output_dir.set(config.get('clear_output_dir', False))
+                    self.thread_count.set(config.get('thread_count', '1'))  # 加载线程数配置
                     
                     # 加载面选择配置
                     if 'face_config' in config:
@@ -221,7 +237,8 @@ class Equi2CubeConverter:
             'face_config': {
                 face_id: var.get()
                 for face_id, var in self.face_vars.items()
-            }
+            },
+            'thread_count': self.thread_count.get()  # 添加线程数配置
         }
         try:
             with open(config_path, 'w', encoding='utf-8') as f:
@@ -271,90 +288,128 @@ class Equi2CubeConverter:
 
     def convert_images(self):
         start_time = time.time()
-        input_path = Path(self.input_dir.get())
-        output_path = Path(self.output_dir.get())
-        
-        # 确保输出目录存在
-        output_path.mkdir(parents=True, exist_ok=True)
-        
-        # 如果选择了清空输出文件夹，则在处理前清空
-        if self.clear_output_dir.get():
+        try:
+            # 获取线程数
             try:
-                # 删除文件夹中的所有文件
-                for file in output_path.glob("*"):
-                    if file.is_file():
-                        file.unlink()
-                self.log_message("已清空输出文件夹")
-            except Exception as e:
-                self.log_message(f"清空输出文件夹时出错: {str(e)}")
-                return
-        
-        # 根据输入是文件还是目录来确定要处理的文件列表
-        if input_path.is_file():
-            # 如果是单个文件，直接将其作为待处理文件
-            if input_path.suffix.lower() in {'.jpg', '.jpeg', '.png'}:
-                image_files = [input_path]
+                thread_count = max(1, min(32, int(self.thread_count.get())))
+            except ValueError:
+                thread_count = 1
+                self.thread_count.set("1")
+
+            input_path = Path(self.input_dir.get())
+            output_path = Path(self.output_dir.get())
+            
+            # 确保输出目录存在
+            output_path.mkdir(parents=True, exist_ok=True)
+            
+            # 如果选择了清空输出文件夹，则在处理前清空
+            if self.clear_output_dir.get():
+                try:
+                    # 删除文件夹中的所有文件
+                    for file in output_path.glob("*"):
+                        if file.is_file():
+                            file.unlink()
+                    self.log_message("已清空输出文件夹")
+                except Exception as e:
+                    self.log_message(f"清空输出文件夹时出错: {str(e)}")
+                    return
+            
+            # 根据输入是文件还是目录来确定要处理的文件列表
+            if input_path.is_file():
+                # 如果是单个文件，直接将其作为待处理文件
+                if input_path.suffix.lower() in {'.jpg', '.jpeg', '.png'}:
+                    image_files = [input_path]
+                else:
+                    self.log_message(f"错误：不支持的文件格式 {input_path.suffix}")
+                    return
             else:
-                self.log_message(f"错误：不支持的文件格式 {input_path.suffix}")
+                # 如果是目录，获取所有支持的图像文件
+                image_files = list(input_path.glob("*.jpg")) + list(input_path.glob("*.jpeg")) + list(input_path.glob("*.png"))
+            
+            total_files = len(image_files)
+            if total_files == 0:
+                self.log_message("没有找到可处理的图像文件")
                 return
-        else:
-            # 如果是目录，获取所有支持的图像文件
-            image_files = list(input_path.glob("*.jpg")) + list(input_path.glob("*.jpeg")) + list(input_path.glob("*.png"))
-        
-        total_files = len(image_files)
-        if total_files == 0:
-            self.log_message("没有找到可处理的图像文件")
-            return
-        
-        self.log_message(f"开始处理 {total_files} 个图像文件")
-        processed_count = 0
-        
-        # 修改这里：更新文件名后缀
-        suffixes = ['pz', 'nz', 'nx', 'px', 'py', 'ny']
-        
-        for i, image_file in enumerate(image_files, 1):
-            if not self.is_converting:
-                break
             
-            try:
-                self.log_message(f"处理: {image_file.name}")
-                
-                # 读取图像
-                img = Image.open(image_file)
-                
-                # 转换图像
-                faces = equi2cube_converter.equirectangular_to_cubemap(img)
-                
-                # 更新预览
-                self.update_preview(faces)
-                
-                # 根据选择保存需要的面
-                stem = image_file.stem
-                ext = image_file.suffix
-                for face, face_id in zip(faces, ['posy', 'negx', 'posz', 'posx', 'negz', 'negy']):
-                    if self.face_vars[face_id].get():  # 只保存选中的面
-                        output_file = output_path / f"{stem}_{face_id}{ext}"
-                        face.save(output_file)
-                
-                processed_count += 1
-                
-            except Exception as e:
-                self.log_message(f"处理 {image_file.name} 时出错: {str(e)}")
-                continue
+            self.log_message(f"开始处理 {total_files} 个图像文件")
+            processed_count = 0
             
-            # 更新进度
-            progress = (i / total_files) * 100
-            self.progress_var.set(progress)
-            self.progress_label.configure(text=f"{i}/{total_files}")
-        
-        end_time = time.time()
-        duration = end_time - start_time
-        self.log_message(f"\n转换完成！")
-        self.log_message(f"成功处理: {processed_count}/{total_files} 个文件")
-        self.log_message(f"耗时: {duration:.2f} 秒")
-        
-        self.is_converting = False
-        self.convert_button.configure(text="转换")
+            # 修改这里：更新文件名后缀
+            suffixes = ['pz', 'nz', 'nx', 'px', 'py', 'ny']
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=thread_count) as executor:
+                # 创建任务列表
+                futures = []
+                for i, image_file in enumerate(image_files):
+                    if not self.is_converting:
+                        break
+                    
+                    future = executor.submit(self.process_single_image, image_file, output_path)
+                    futures.append(future)
+
+                # 处理完成的任务
+                for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                    if not self.is_converting:
+                        # 取消所有未完成的任务
+                        for f in futures:
+                            f.cancel()
+                        break
+
+                    try:
+                        result = future.result()
+                        if result:
+                            processed_count += 1
+                    except Exception as e:
+                        self.log_message(f"处理任务时出错: {str(e)}")
+
+                    # 更新进度
+                    progress = ((i + 1) / total_files) * 100
+                    self.progress_var.set(progress)
+                    self.progress_label.configure(text=f"{i+1}/{total_files}")
+
+            # 计算处理时间
+            end_time = time.time()
+            duration = end_time - start_time
+            
+            # 输出汇总信息
+            self.log_message(f"\n转换完成！")
+            self.log_message(f"成功处理: {processed_count}/{total_files} 个文件")
+            self.log_message(f"处理线程: {thread_count} 个")
+            self.log_message(f"耗时: {int(duration//60)}分 {duration%60:.1f}秒")
+
+        except Exception as e:
+            self.log_message(f"发生错误: {str(e)}")
+        finally:
+            self.is_converting = False
+            self.convert_button.configure(text="转换")
+
+    def process_single_image(self, image_file, output_path):
+        try:
+            self.log_message(f"处理: {image_file.name}")
+            
+            # 读取图像
+            img = Image.open(image_file)
+            
+            # 转换图像
+            faces = equi2cube_converter.equirectangular_to_cubemap(img)
+            
+            # 只在单线程模式下更新预览
+            if int(self.thread_count.get()) == 1:
+                self.root.after(0, lambda: self.update_preview(faces))
+            
+            # 保存需要的面
+            stem = image_file.stem
+            ext = image_file.suffix
+            for face, face_id in zip(faces, ['posy', 'negx', 'posz', 'posx', 'negz', 'negy']):
+                if self.face_vars[face_id].get():  # 只保存选中的面
+                    output_file = output_path / f"{stem}_{face_id}{ext}"
+                    face.save(output_file)
+            
+            return True
+            
+        except Exception as e:
+            self.log_message(f"处理 {image_file.name} 时出错: {str(e)}")
+            return False
 
     def on_closing(self):
         self.save_config()
@@ -389,7 +444,7 @@ def process_single_file(input_path, output_dir):
         print(f"处理文件 {input_path} 时出错: {str(e)}")
 
 def process_directory(input_dir, output_dir):
-    """处理整个文件夹"""
+    """处理���个文件夹"""
     input_path = Path(input_dir)
     supported_extensions = {'.jpg', '.jpeg', '.png'}
     
