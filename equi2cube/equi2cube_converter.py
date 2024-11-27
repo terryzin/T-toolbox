@@ -8,18 +8,14 @@ def create_cubemap_matrices(width):
     y = np.linspace(-1, 1, width)
     x, y = np.meshgrid(x, y)
 
-    # 按照标准布局映射：
-    #     [   posy   ]
-    # [negx][posz][posx][negz]
-    #     [   negy   ]
-    # 通过将 x 取反来实现左右翻转
+    # 通过将 x 取反来实现水平翻转
     matrices = {
-        'posy': (x, -np.ones_like(y), y),          # 上
-        'negy': (x, np.ones_like(y), -y),          # 下
-        'negx': (np.ones_like(x), y, -x),          # 左
-        'posz': (x, y, np.ones_like(x)),           # 前
-        'posx': (-np.ones_like(x), y, x),          # 右
-        'negz': (-x, y, -np.ones_like(x))          # 后
+        'posy': (-x, -np.ones_like(y), y),         # 上
+        'negy': (-x, np.ones_like(y), -y),         # 下
+        'negx': (np.ones_like(x), y, x),           # 左
+        'posz': (-x, y, np.ones_like(x)),          # 前
+        'posx': (-np.ones_like(x), y, -x),         # 右
+        'negz': (x, y, -np.ones_like(x))           # 后
     }
     
     return matrices
@@ -98,12 +94,12 @@ def equirectangular_to_cubemap(equi_img, face_size=None):
         
         faces_raw[face_name] = Image.fromarray(face_pixels)
     
-    # 直接返回原始面，按照标准布局顺序
+    # 在返回之前对所有面进行水平翻转，并对顶面和底面进行旋转
     return (
-        faces_raw['negx'],  # 左
-        faces_raw['posz'],  # 前
-        faces_raw['posx'],  # 右
-        faces_raw['negz'],  # 后
-        faces_raw['posy'],  # 上
-        faces_raw['negy']   # 下
+        faces_raw['posy'].rotate(-90, expand=True),    # 上(逆时针90度)
+        faces_raw['negx'],    # 左
+        faces_raw['posz'],    # 前
+        faces_raw['posx'],    # 右
+        faces_raw['negz'],    # 后
+        faces_raw['negy'].rotate(90, expand=True)   # 下(顺时针90度)
     ) 
