@@ -7,33 +7,42 @@
             "tooltip": "将视频转换为图片序列",
             "position": 0
         },
-
         {
-            "name": "Equi to Cube",
-            "icon": "assets/equi2cube.png",
-            "script": "equi2cube/equi2cube.py",
-            "tooltip": "全景图转立方体贴图",
-            "position": 1
-        },
-        {
-            "name": "Image Mixer",
-            "icon": "assets/imagemixer.png",
-            "script": "image-mixer/image-mixer.py",
-            "tooltip": "图片混合工具",
-            "position": 2
-        },
-        {
-            "name": "Image to Detail",
-            "icon": "assets/image2detail.png",
-            "script": "image2detail/image2detail.py",
-            "tooltip": "图片信息提取工具",
-            "position": 3
+            "name": "360 Spliter",
+            "script": "360-spliter/360-spliter.py",
+            "icon": "assets/360-spliter.png",
+            "tooltip": "360图像分割工具",
+            "position": 1            
         },
         {
             "name": "File Helper",
             "script": "file-helper/file_helper.py",
             "icon": "assets/file-helper.png",
-            "tooltip": "文件处理工具"
+            "tooltip": "文件处理工具",
+            "position": 2            
+        },
+
+        {
+            "name": "Image Mixer",
+            "icon": "assets/imagemixer.png",
+            "script": "image-mixer/image-mixer.py",
+            "tooltip": "图片混合工具",
+            "position": 3
+        },
+        {
+            "name": "Equi to Cube",
+            "icon": "assets/equi2cube.png",
+            "script": "equi2cube/equi2cube.py",
+            "tooltip": "全景图转立方体贴图",
+            "position": 4
+        },
+        {
+            "name": "Image Details",
+            "icon": "assets/image2detail.png",
+            "script": "image2detail/image2detail.py",
+            "tooltip": "图片信息提取工具",
+            "position": 5
         }
+
     ]
 }
