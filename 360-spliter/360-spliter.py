@@ -6,6 +6,7 @@ import json
 import threading
 from pathlib import Path
 import shutil
+import time
 
 class Split360GUI:
     def __init__(self, root):
@@ -67,7 +68,7 @@ class Split360GUI:
         ttk.Label(main_frame, text="输入源:").grid(row=0, column=0, sticky=tk.W)
         self.input_entry = ttk.Entry(main_frame, width=50)
         self.input_entry.grid(row=0, column=1, columnspan=2, sticky=(tk.W, tk.E))
-        ttk.Button(main_frame, text="选择文件", command=self.select_input_file).grid(row=0, column=3)
+        ttk.Button(main_frame, text="选文件", command=self.select_input_file).grid(row=0, column=3)
         ttk.Button(main_frame, text="选择文件夹", command=self.select_input_folder).grid(row=0, column=4)
         
         # 输出文件夹
@@ -190,34 +191,59 @@ class Split360GUI:
                 "默认工具路径：\n" + "\n".join(self.default_tool_paths))
             return
             
-        # 保存当前配置
-        self.config.update({
-            "tool_path": tool_path,
-            "input_path": self.input_entry.get(),
-            "output_path": self.output_entry.get(),
-            "clear_output": self.clear_output_var.get(),
-            "splits": self.splits_entry.get(),
-            "resolution": self.resolution_entry.get()
-        })
-        self.save_config()
-        
         # 验证输入
         if not all([self.tool_entry.get(), self.input_entry.get(), 
                    self.output_entry.get(), self.splits_entry.get(), 
                    self.resolution_entry.get()]):
             messagebox.showerror("错误", "请填写所有必要的字段！")
             return
-            
+
+        output_path = self.output_entry.get()
+        
         # 清空输出目录
         if self.clear_output_var.get():
             try:
-                if os.path.exists(self.output_entry.get()):
-                    shutil.rmtree(self.output_entry.get())
-                os.makedirs(self.output_entry.get(), exist_ok=True)
+                if os.path.exists(output_path):
+                    # 使用 update_log 记录清空操作
+                    self.update_log(f"正在清空输出目录: {output_path}")
+                    for item in os.listdir(output_path):
+                        item_path = os.path.join(output_path, item)
+                        try:
+                            if os.path.isfile(item_path):
+                                os.unlink(item_path)
+                            elif os.path.isdir(item_path):
+                                shutil.rmtree(item_path)
+                        except Exception as e:
+                            self.update_log(f"清除项目失败: {item_path} - {str(e)}")
+                
+                # 确保输出目录存在
+                os.makedirs(output_path, exist_ok=True)
+                self.update_log("输出目录已清空并重新创建")
+                
             except Exception as e:
                 self.update_log(f"清空输出目录失败: {str(e)}")
+                messagebox.showerror("错误", f"清空输出目录失败: {str(e)}")
                 return
-                
+        else:
+            # 如果不清空，至少确保输出目录存在
+            try:
+                os.makedirs(output_path, exist_ok=True)
+            except Exception as e:
+                self.update_log(f"创建输出目录失败: {str(e)}")
+                messagebox.showerror("错误", f"创建输出目录失败: {str(e)}")
+                return
+        
+        # 保存当前配置
+        self.config.update({
+            "tool_path": tool_path,
+            "input_path": self.input_entry.get(),
+            "output_path": output_path,
+            "clear_output": self.clear_output_var.get(),
+            "splits": self.splits_entry.get(),
+            "resolution": self.resolution_entry.get()
+        })
+        self.save_config()
+        
         # 构建命令
         cmd = [
             self.tool_entry.get(),
@@ -243,34 +269,25 @@ class Split360GUI:
             self.update_log(" ".join(cmd))
             self.update_log("-" * 50)  # 添加分隔线
             
+            # 在 Windows 上创建新的控制台窗口
+            creation_flags = subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+            
+            # 移除 stdout 和 stderr 的重定向，让输出直接显示在新窗口中
             self.current_process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True
+                creationflags=creation_flags
             )
             
-            while True:
-                output = self.current_process.stdout.readline()
-                if output == '' and self.current_process.poll() is not None:
-                    break
-                if output:
-                    self.update_log(output.strip())
-                    
+            # 等待进程完成
             returncode = self.current_process.wait()
             
             if returncode == 0:
-                self.update_log("-" * 50)  # 添加分隔线
+                self.update_log("-" * 50)
                 self.update_log("处理完成！")
             else:
-                self.update_log("-" * 50)  # 添加分隔线
+                self.update_log("-" * 50)
                 self.update_log(f"处理失败，返回码: {returncode}")
-                # 获取错误输出
-                error_output = self.current_process.stderr.read()
-                if error_output:
-                    self.update_log("错误信息:")
-                    self.update_log(error_output)
-                    
+                
         except Exception as e:
             self.update_log(f"发生错误: {str(e)}")
         finally:
