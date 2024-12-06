@@ -7,6 +7,7 @@ import threading
 from pathlib import Path
 import shutil
 import time
+import concurrent.futures
 
 class Split360GUI:
     def __init__(self, root):
@@ -39,7 +40,8 @@ class Split360GUI:
             "output_path": "",
             "clear_output": False,
             "splits": "6",
-            "resolution": "1600"
+            "resolution": "1600",
+            "threads": str(min(4, os.cpu_count() or 4))  # 默认线程数
         }
         
         try:
@@ -98,19 +100,36 @@ class Split360GUI:
         self.resolution_entry = ttk.Entry(main_frame, width=10)
         self.resolution_entry.grid(row=5, column=1, sticky=tk.W)
         
-        # 日志输出框
-        ttk.Label(main_frame, text="处理日志:").grid(row=6, column=0, sticky=tk.W)
-        self.log_text = tk.Text(main_frame, height=10, width=70)
-        self.log_text.grid(row=7, column=0, columnspan=5, sticky=(tk.W, tk.E))
+        # 线程数量
+        ttk.Label(main_frame, text="线程数量:").grid(row=6, column=0, sticky=tk.W)
+        self.threads_entry = ttk.Entry(main_frame, width=10)
+        self.threads_entry.grid(row=6, column=1, sticky=tk.W)
+        ttk.Label(main_frame, text=f"(建议 1-{os.cpu_count() or 4})").grid(row=6, column=2, sticky=tk.W)
         
-        # 滚动条
+        # 进度条
+        self.progress_var = tk.DoubleVar()
+        ttk.Label(main_frame, text="处理进度:").grid(row=7, column=0, sticky=tk.W)
+        self.progress_bar = ttk.Progressbar(
+            main_frame,
+            variable=self.progress_var,
+            maximum=100,
+            mode='determinate'
+        )
+        self.progress_bar.grid(row=7, column=1, columnspan=4, sticky=(tk.W, tk.E), padx=5)
+        
+        # 日志输出框 (行号+1)
+        ttk.Label(main_frame, text="处理日志:").grid(row=8, column=0, sticky=tk.W)
+        self.log_text = tk.Text(main_frame, height=10, width=70)
+        self.log_text.grid(row=9, column=0, columnspan=5, sticky=(tk.W, tk.E))
+        
+        # 滚动条 (行号+1)
         scrollbar = ttk.Scrollbar(main_frame, orient=tk.VERTICAL, command=self.log_text.yview)
-        scrollbar.grid(row=7, column=5, sticky=(tk.N, tk.S))
+        scrollbar.grid(row=9, column=5, sticky=(tk.N, tk.S))
         self.log_text['yscrollcommand'] = scrollbar.set
         
-        # 按钮框架
+        # 按钮框架 (行号+1)
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=8, column=0, columnspan=5, pady=10, sticky=(tk.W, tk.E))
+        button_frame.grid(row=10, column=0, columnspan=5, pady=10, sticky=(tk.W, tk.E))
         
         # 退出按钮靠左
         ttk.Button(button_frame, text="退出", command=self.root.quit).pack(side=tk.LEFT, padx=5)
@@ -131,6 +150,7 @@ class Split360GUI:
         self.clear_output_var.set(self.config.get("clear_output", False))
         self.splits_entry.insert(0, self.config.get("splits", "6"))
         self.resolution_entry.insert(0, self.config.get("resolution", "1600"))
+        self.threads_entry.insert(0, self.config.get("threads", str(min(4, os.cpu_count() or 4))))
         
     def select_input_file(self):
         filename = filedialog.askopenfilename(filetypes=[("图像文件", "*.jpg *.jpeg *.png")])
@@ -179,121 +199,149 @@ class Split360GUI:
                 self.process_button.configure(text="分割图像")
                 self.update_log("处理已停止")
             return
-            
+
         # 验证工具路径
         tool_path = self.tool_entry.get()
-        if not tool_path:
-            messagebox.showerror("错误", "请选择处理工具！")
+        if not tool_path or not os.path.exists(tool_path):
+            messagebox.showerror("错误", "请选择正确的处理工具！")
             return
-        if not os.path.exists(tool_path):
-            messagebox.showerror("错误", 
-                "找不到处理工具，请检查工具路径是否正确！\n"
-                "默认工具路径：\n" + "\n".join(self.default_tool_paths))
-            return
-            
-        # 验证输入
-        if not all([self.tool_entry.get(), self.input_entry.get(), 
-                   self.output_entry.get(), self.splits_entry.get(), 
-                   self.resolution_entry.get()]):
+
+        # 验证输入和输出路径
+        input_path = self.input_entry.get()
+        output_path = self.output_entry.get()
+        if not all([input_path, output_path, self.splits_entry.get(), self.resolution_entry.get()]):
             messagebox.showerror("错误", "请填写所有必要的字段！")
             return
 
-        output_path = self.output_entry.get()
-        
-        # 清空输出目录
-        if self.clear_output_var.get():
-            try:
-                if os.path.exists(output_path):
-                    # 使用 update_log 记录清空操作
-                    self.update_log(f"正在清空输出目录: {output_path}")
-                    for item in os.listdir(output_path):
-                        item_path = os.path.join(output_path, item)
-                        try:
-                            if os.path.isfile(item_path):
-                                os.unlink(item_path)
-                            elif os.path.isdir(item_path):
-                                shutil.rmtree(item_path)
-                        except Exception as e:
-                            self.update_log(f"清除项目失败: {item_path} - {str(e)}")
-                
-                # 确保输出目录存在
-                os.makedirs(output_path, exist_ok=True)
-                self.update_log("输出目录已清空并重新创建")
-                
-            except Exception as e:
-                self.update_log(f"清空输出目录失败: {str(e)}")
-                messagebox.showerror("错误", f"清空输出目录失败: {str(e)}")
-                return
+        # 验证并获取线程数
+        try:
+            threads = int(self.threads_entry.get())
+            if threads < 1:
+                raise ValueError("线程数必须大于0")
+        except ValueError as e:
+            messagebox.showerror("错误", f"无效的线程数: {str(e)}")
+            return
+
+        # 获取所有需要处理的图片文件
+        image_files = []
+        if os.path.isfile(input_path):
+            # 单个文件
+            if input_path.lower().endswith(('.jpg', '.jpeg', '.png')):
+                image_files.append(input_path)
         else:
-            # 如果不清空，至少确保输出目录存在
-            try:
-                os.makedirs(output_path, exist_ok=True)
-            except Exception as e:
-                self.update_log(f"创建输出目录失败: {str(e)}")
-                messagebox.showerror("错误", f"创建输出目录失败: {str(e)}")
-                return
-        
-        # 保存当前配置
+            # 文件夹，收集所有图片文件
+            for root, _, files in os.walk(input_path):
+                for file in files:
+                    if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                        image_files.append(os.path.join(root, file))
+
+        if not image_files:
+            messagebox.showerror("错误", "未找到可处理的图片文件！")
+            return
+
+        # 清空或创建主输出目录
+        try:
+            if self.clear_output_var.get() and os.path.exists(output_path):
+                self.update_log(f"正在清空输���目录: {output_path}")
+                shutil.rmtree(output_path)
+            os.makedirs(output_path, exist_ok=True)
+        except Exception as e:
+            self.update_log(f"处理输出目录失败: {str(e)}")
+            messagebox.showerror("错误", f"处理输出目录失败: {str(e)}")
+            return
+
+        # 保存配置
         self.config.update({
             "tool_path": tool_path,
-            "input_path": self.input_entry.get(),
+            "input_path": input_path,
             "output_path": output_path,
             "clear_output": self.clear_output_var.get(),
             "splits": self.splits_entry.get(),
-            "resolution": self.resolution_entry.get()
+            "resolution": self.resolution_entry.get(),
+            "threads": str(threads)
         })
         self.save_config()
-        
-        # 构建命令
-        cmd = [
-            self.tool_entry.get(),
-            "-i", self.input_entry.get(),
-            "-o", self.output_entry.get(),
-            "--equirectangularNbSplits", self.splits_entry.get(),
-            "--equirectangularSplitResolution", self.resolution_entry.get()
-        ]
-        
+
+        # 设置处理状态
         self.is_processing = True
         self.process_button.configure(text="停止")
         
-        # 在新线程中执行命令
-        thread = threading.Thread(target=self.run_process, args=(cmd,))
-        thread.daemon = True
-        thread.start()
+        # 使用用户设置的线程数
+        max_workers = min(threads, len(image_files))
+        self.update_log(f"创建{max_workers}个处理线程")
         
-    def run_process(self, cmd):
+        # 启动处理线程
+        processing_thread = threading.Thread(
+            target=self.process_multiple_images,
+            args=(image_files, tool_path, output_path, max_workers)
+        )
+        processing_thread.daemon = True
+        processing_thread.start()
+
+    def process_multiple_images(self, image_files, tool_path, base_output_path, max_workers):
         try:
-            # 在日志中显示完整命令
-            self.update_log("开始处理...")
-            self.update_log("执行命令:")
-            self.update_log(" ".join(cmd))
-            self.update_log("-" * 50)  # 添加分隔线
+            # 重置进度条
+            self.progress_var.set(0)
+            total_files = len(image_files)
             
-            # 在 Windows 上创建新的控制台窗口
-            creation_flags = subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
-            
-            # 移除 stdout 和 stderr 的重定向，让输出直接显示在新窗口中
-            self.current_process = subprocess.Popen(
-                cmd,
-                creationflags=creation_flags
-            )
-            
-            # 等待进程完成
-            returncode = self.current_process.wait()
-            
-            if returncode == 0:
-                self.update_log("-" * 50)
-                self.update_log("处理完成！")
-            else:
-                self.update_log("-" * 50)
-                self.update_log(f"处理失败，返回码: {returncode}")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_file = {}
+                for img_file in image_files:
+                    cmd = [
+                        tool_path,
+                        "-i", img_file,
+                        "-o", base_output_path,
+                        "--equirectangularNbSplits", self.splits_entry.get(),
+                        "--equirectangularSplitResolution", self.resolution_entry.get()
+                    ]
+                    
+                    future = executor.submit(self.run_single_process, cmd, img_file)
+                    future_to_file[future] = img_file
                 
+                completed = 0
+                for future in concurrent.futures.as_completed(future_to_file):
+                    img_file = future_to_file[future]
+                    completed += 1
+                    try:
+                        success = future.result()
+                        status = "成功" if success else "失败"
+                        # 更新进度条
+                        progress = (completed / total_files) * 100
+                        self.progress_var.set(progress)
+                        self.update_log(f"处理进度: [{completed}/{total_files}] {os.path.basename(img_file)} - {status}")
+                    except Exception as e:
+                        self.update_log(f"处理失败 {os.path.basename(img_file)}: {str(e)}")
+                    
         except Exception as e:
-            self.update_log(f"发生错误: {str(e)}")
+            self.update_log(f"多线程处理发生错误: {str(e)}")
         finally:
             self.is_processing = False
-            self.current_process = None
             self.process_button.configure(text="分割图像")
+            self.update_log("所有任务处理完成")
+
+    def run_single_process(self, cmd, img_file):
+        try:
+            self.update_log(f"开始处理: {os.path.basename(img_file)}")
+            # 使用 subprocess.PIPE 捕获输出，不显示命令行窗口
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True  # 使用text=True替代universal_newlines=True
+            )
+            
+            # 读取输出
+            stdout, stderr = process.communicate()
+            
+            if stdout:
+                self.update_log(stdout.strip())
+            if stderr:
+                self.update_log(f"警告/错误: {stderr.strip()}")
+            
+            return process.returncode == 0
+        except Exception as e:
+            self.update_log(f"处理出错 {os.path.basename(img_file)}: {str(e)}")
+            return False
 
 def main():
     root = tk.Tk()
