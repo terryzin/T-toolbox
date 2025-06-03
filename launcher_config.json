@@ -8,18 +8,25 @@
             "position": 0
         },
         {
+            "name": "Image2Video",
+            "icon": "assets/image2video.png",
+            "script": "image2video/image2video.py",
+            "tooltip": "将图片序列转换为视频",
+            "position": 1
+        },
+        {
             "name": "360 Spliter",
             "script": "360-spliter/360-spliter.py",
             "icon": "assets/360-spliter.png",
             "tooltip": "360图像分割工具",
-            "position": 1            
+            "position": 2            
         },
         {
             "name": "File Helper",
             "script": "file-helper/file_helper.py",
             "icon": "assets/file-helper.png",
             "tooltip": "文件处理工具",
-            "position": 2            
+            "position": 3            
         },
 
         {
@@ -27,21 +34,21 @@
             "icon": "assets/imagemixer.png",
             "script": "image-mixer/image-mixer.py",
             "tooltip": "图片混合工具",
-            "position": 3
+            "position": 4
         },
         {
             "name": "Equi to Cube",
             "icon": "assets/equi2cube.png",
             "script": "equi2cube/equi2cube.py",
             "tooltip": "全景图转立方体贴图",
-            "position": 4
+            "position": 5
         },
         {
             "name": "Image Details",
             "icon": "assets/image2detail.png",
             "script": "image2detail/image2detail.py",
             "tooltip": "图片信息提取工具",
-            "position": 5
+            "position": 6
         }
 
     ]
