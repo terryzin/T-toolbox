@@ -49,6 +49,13 @@
             "script": "image2detail/image2detail.py",
             "tooltip": "图片信息提取工具",
             "position": 6
+        },
+        {
+            "name": "Cam-Undistor",
+            "icon": "assets/camera-undistortion.png",
+            "script": "camera-undistortion/camera-undistortion.py",
+            "tooltip": "相机图像反畸变工具",
+            "position": 7
         }
 
     ]
