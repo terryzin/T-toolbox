@@ -8,7 +8,6 @@ def create_cubemap_matrices(width):
     x, y = np.meshgrid(x, y)
 
     matrices = {
-        'negz': (-x, y, -np.ones_like(x)),          # 后
         'posy': (-x, -np.ones_like(y), y),         # 上
         'negy': (-x, np.ones_like(y), -y),         # 下
         'negx': (np.ones_like(x), y, x),           # 左
